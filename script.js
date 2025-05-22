@@ -65,7 +65,9 @@ const fetchData = async (endpoint) => {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        return await response.json();
+        const data = await response.json();
+        console.log(`Data fetched from ${endpoint}:`, data);
+        return data;
     } catch (error) {
         console.error(`Erro ao buscar dados de ${endpoint}:`, error);
         showAlert(`Erro ao carregar dados de ${endpoint}`, 'danger');
@@ -75,19 +77,29 @@ const fetchData = async (endpoint) => {
 
 const postData = async (endpoint, data) => {
     try {
+        // SheetDB requires data in { "data": [{ record }] } format
+        const wrappedData = { data: [data] };
+        console.log('Sending data to SheetDB in wrapped format:', wrappedData);
+        
         const response = await fetch(`${API_BASE_URL}?sheet=${endpoint}`, {
             method: 'POST',
             headers: {
+                'Accept': 'application/json',
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(data)
+            body: JSON.stringify(wrappedData)
         });
         
+        const responseText = await response.text();
+        console.log('SheetDB response:', responseText);
+        console.log('Response status:', response.status);
+        console.log('Response headers:', [...response.headers.entries()]);
+        
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP error! status: ${response.status}, response: ${responseText}`);
         }
         
-        return await response.json();
+        return responseText ? JSON.parse(responseText) : {};
     } catch (error) {
         console.error(`Erro ao enviar dados para ${endpoint}:`, error);
         throw error;
@@ -229,9 +241,9 @@ const loadReports = async () => {
     
     let html = '';
     allData.abastecimentos.forEach(abastecimento => {
-        const usuario = allData.usuarios.find(u => u.id === abastecimento.id_usuario);
-        const veiculo = allData.veiculos.find(v => v.id === abastecimento.id_veiculo);
-        const posto = allData.postos.find(p => p.id === abastecimento.id_posto);
+        const usuario = allData.usuarios.find(u => u.id === abastecimento.idusuario);
+        const veiculo = allData.veiculos.find(v => v.id === abastecimento.idveiculo);
+        const posto = allData.postos.find(p => p.id === abastecimento.idposto);
         
         const combustivelClass = 
             abastecimento.combustivel === 'AL' ? 'fuel-al' :
@@ -245,10 +257,10 @@ const loadReports = async () => {
             <tr>
                 <td>${formatDate(abastecimento.data)}</td>
                 <td>${usuario ? usuario.nome : 'N/A'}</td>
-                <td>${veiculo ? veiculo.placa : 'N/A'}</td>
+                <td>${veiculo ? veiculo.placa : 'N/A'}</td> 
                 <td>${posto ? posto.nome : 'N/A'}</td>
                 <td><span class="${combustivelClass}">${combustivelText}</span></td>
-                <td>${parseFloat(abastecimento.qtd_litros).toFixed(2)}L</td>
+                <td>${parseFloat(abastecimento.qtdlitros).toFixed(2)}L</td>
                 <td>${parseInt(abastecimento.quilometragem).toLocaleString()}km</td>
             </tr>
         `;
@@ -269,15 +281,15 @@ const aplicarFiltros = async () => {
     let filteredData = allData.abastecimentos;
     
     if (filtroUsuario) {
-        filteredData = filteredData.filter(a => a.id_usuario === filtroUsuario);
+        filteredData = filteredData.filter(a => a.idusuario === filtroUsuario);
     }
     
     if (filtroVeiculo) {
-        filteredData = filteredData.filter(a => a.id_veiculo === filtroVeiculo);
+        filteredData = filteredData.filter(a => a.idveiculo === filtroVeiculo);
     }
     
     if (filtroPosto) {
-        filteredData = filteredData.filter(a => a.id_posto === filtroPosto);
+        filteredData = filteredData.filter(a => a.idposto === filtroPosto);
     }
     
     // Update table with filtered data
@@ -298,25 +310,45 @@ const handleAbastecimentoSubmit = async (event) => {
     event.preventDefault();
     
     const form = event.target;
-    const formData = new FormData(form);
     
+    // Ensure the object properties match exactly with your Google Sheets column headers
     const abastecimento = {
         id: generateId('ab'),
         data: document.getElementById('data').value,
-        qtd_litros: parseFloat(document.getElementById('qtdLitros').value),
+        qtdlitros: parseFloat(document.getElementById('qtdLitros').value),
         combustivel: document.getElementById('combustivel').value,
         quilometragem: parseInt(document.getElementById('quilometragem').value),
-        id_posto: document.getElementById('posto').value,
-        id_usuario: currentUser.id,
-        id_veiculo: document.getElementById('veiculo').value
+        idposto: document.getElementById('posto').value,
+        idusuario: currentUser.id,
+        idveiculo: document.getElementById('veiculo').value
     };
+    
+    console.log('Sending abastecimento data:', abastecimento);
     
     // Add submitting class for visual feedback
     form.classList.add('submitting');
     showLoading();
     
     try {
-        await postData('abastecimentos', abastecimento);
+        // Try with the { data: [record] } format directly
+        const wrappedData = { data: [abastecimento] };
+        
+        const response = await fetch(`${API_BASE_URL}?sheet=abastecimentos`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(wrappedData)
+        });
+        
+        const responseText = await response.text();
+        console.log('SheetDB direct response:', responseText);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}, response: ${responseText}`);
+        }
+        
         showAlert('Abastecimento registrado com sucesso!', 'success');
         form.reset();
         
@@ -325,7 +357,8 @@ const handleAbastecimentoSubmit = async (event) => {
         document.getElementById('data').value = today;
         
     } catch (error) {
-        showAlert('Erro ao registrar abastecimento. Tente novamente.', 'danger');
+        console.error('Error details:', error);
+        showAlert('Erro ao registrar abastecimento. Verifique os dados e tente novamente.', 'danger');
     } finally {
         form.classList.remove('submitting');
         hideLoading();
