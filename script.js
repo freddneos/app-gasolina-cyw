@@ -1,3 +1,41 @@
+// Export table data to CSV and trigger download
+const exportRelatorioToCSV = () => {
+    // Get the currently displayed (filtered) abastecimentos
+    const rows = Array.from(document.querySelectorAll('#relatorioTable tr'));
+    if (!rows.length) {
+        showAlert('Nenhum dado para exportar.', 'warning');
+        return;
+    }
+
+    // Table headers
+    const headers = ['Data', 'Usuário', 'Veículo', 'Posto', 'Combustível', 'Litros', 'KM'];
+    const csvRows = [headers.join(',')];
+
+    // Only export rows with 7 columns (skip loading or empty rows)
+    rows.forEach(row => {
+        const cols = Array.from(row.querySelectorAll('td'));
+        if (cols.length === 7) {
+            const values = cols.map(td => '"' + td.textContent.replace(/"/g, '""').trim() + '"');
+            csvRows.push(values.join(','));
+        }
+    });
+
+    if (csvRows.length === 1) {
+        showAlert('Nenhum dado para exportar.', 'warning');
+        return;
+    }
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio_abastecimentos_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
 // App Gasolina - JavaScript
 
 // Configurações da API SheetDB
@@ -403,4 +441,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+
+    // Download CSV button (admin screen)
+    const downloadBtn = document.getElementById('downloadCsvBtn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', exportRelatorioToCSV);
+    }
 });
