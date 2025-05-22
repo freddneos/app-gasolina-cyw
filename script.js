@@ -222,29 +222,106 @@ const loadMotoristaScreen = async () => {
 
 const loadAdminScreen = async () => {
     showLoading();
-    
     try {
         // Load all data
         allData.usuarios = await fetchData('usuarios');
         allData.veiculos = await fetchData('veiculos');
         allData.postos = await fetchData('postos');
         allData.abastecimentos = await fetchData('abastecimentos');
-        
+
         // Populate filter selects
         populateFilterSelects();
-        
+
+        // Render dashboard cards
+        renderDashboardCards();
+
         // Load reports
         await loadReports();
-        
+
         // Update header
         document.getElementById('adminNameHeader').textContent = currentUser.nome;
-        
     } catch (error) {
+        console.log('ERROR:', error);   
         showAlert('Erro ao carregar dados da tela de administração', 'danger');
     } finally {
         hideLoading();
     }
 };
+
+// Render Morris.js dashboard cards
+
+
+function renderDashboardCards() {
+    // Clean up previous charts if any (Morris.js does not have a destroy method)
+    if (window.totalAbastecimentosChart) {
+        document.getElementById('totalAbastecimentosChart').innerHTML = '';
+        window.totalAbastecimentosChart = null;
+    }
+    if (window.totalLitrosChart) {
+        document.getElementById('totalLitrosChart').innerHTML = '';
+        window.totalLitrosChart = null;
+    }
+    if (window.topUsuarioChart) {
+        document.getElementById('topUsuarioChart').innerHTML = '';
+        window.topUsuarioChart = null;
+    }
+
+    // 1. Total de abastecimentos (Bar Chart)
+    window.totalAbastecimentosChart = new Morris.Bar({
+        element: 'totalAbastecimentosChart',
+        data: [
+            { label: 'Abastecimentos', value: allData.abastecimentos.length }
+        ],
+        xkey: 'label',
+        ykeys: ['value'],
+        labels: ['Total'],
+        barColors: ['#0d6efd'],
+        hideHover: 'auto',
+        resize: true
+    });
+
+    // 2. Total de litros abastecidos (Line Chart)
+    // Para o gráfico de linha, mostrar evolução por mês
+    const litrosPorMes = {};
+    allData.abastecimentos.forEach(a => {
+        const mes = (a.data || '').slice(0, 7); // yyyy-mm
+        if (!litrosPorMes[mes]) litrosPorMes[mes] = 0;
+        litrosPorMes[mes] += parseFloat(a.qtdlitros || 0);
+    });
+    const litrosPorMesArr = Object.keys(litrosPorMes).sort().map(mes => ({ mes, litros: parseFloat(litrosPorMes[mes].toFixed(2)) }));
+    window.totalLitrosChart = new Morris.Line({
+        element: 'totalLitrosChart',
+        data: litrosPorMesArr.length ? litrosPorMesArr : [{ mes: '', litros: 0 }],
+        xkey: 'mes',
+        ykeys: ['litros'],
+        labels: ['Litros'],
+        lineColors: ['#198754'],
+        parseTime: false,
+        hideHover: 'auto',
+        resize: true
+    });
+
+    // 3. Usuário com mais abastecimentos (Pie/Donut Chart)
+    const userCount = {};
+    allData.abastecimentos.forEach(a => {
+        if (!userCount[a.idusuario]) userCount[a.idusuario] = 0;
+        userCount[a.idusuario]++;
+    });
+    const userDonutData = Object.keys(userCount).map(uid => {
+        const user = allData.usuarios.find(u => u.id === uid);
+        return {
+            label: user ? user.nome : 'N/A',
+            value: userCount[uid]
+        };
+    });
+    window.topUsuarioChart = new Morris.Donut({
+        element: 'topUsuarioChart',
+        data: userDonutData.length ? userDonutData : [{ label: 'N/A', value: 0 }],
+        colors: ['#fd7e14', '#0d6efd', '#198754', '#6f42c1', '#dc3545', '#ffc107'],
+        formatter: function (val) { return val + 'x'; },
+        resize: true
+    });
+}
 
 const populateFilterSelects = () => {
     // Filter by user
@@ -311,28 +388,29 @@ const aplicarFiltros = async () => {
     const filtroUsuario = document.getElementById('filtroUsuario').value;
     const filtroVeiculo = document.getElementById('filtroVeiculo').value;
     const filtroPosto = document.getElementById('filtroPosto').value;
-    
+
     // Reload all data
     allData.abastecimentos = await fetchData('abastecimentos');
-    
+
     // Apply filters
     let filteredData = allData.abastecimentos;
-    
+
     if (filtroUsuario) {
         filteredData = filteredData.filter(a => a.idusuario === filtroUsuario);
     }
-    
+
     if (filtroVeiculo) {
         filteredData = filteredData.filter(a => a.idveiculo === filtroVeiculo);
     }
-    
+
     if (filtroPosto) {
         filteredData = filteredData.filter(a => a.idposto === filtroPosto);
     }
-    
-    // Update table with filtered data
+
+    // Update table and dashboard with filtered data
     const originalData = allData.abastecimentos;
     allData.abastecimentos = filteredData;
+    renderDashboardCards();
     await loadReports();
     allData.abastecimentos = originalData; // Restore original data
 };
